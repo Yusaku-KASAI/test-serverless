@@ -14,3 +14,11 @@ functions:
       - httpApi:
           path: /
           method: get
+
+plugins:
+  - serverless-iam-roles-per-function
+  - serverless-python-requirements
+  - serverless-prune-plugin
+  - serverless-plugin-lambda-insights
+  - serverless-plugin-aws-alerts
+  - serverless-domain-manager

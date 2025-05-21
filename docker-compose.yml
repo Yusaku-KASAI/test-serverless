@@ -18,7 +18,12 @@ services:
     volumes:
       - ./serverless:/serverless
       - ~/.aws:/root/.aws
+      - serverless-node_modules:/serverless/node_modules
     tty: true
     ports:
       #(awccliのコールバックポート、基本はホスト側でログインするべきだけど)
       - 40237:40237
+
+
+volumes:
+  serverless-node_modules:
