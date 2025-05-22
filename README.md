@@ -84,6 +84,21 @@ docker compose exec sls-deploy serverless plugin install --name serverless-domai
 
 ### 🧱 リソース定義
 
+### 🔌 プラグインの設定
+
+- とりあえず全てコメントアウト
+
+---
+
+## 🚀 プロジェクトデプロイ（コンテナから）
+
+以下のコマンドで、デプロイ用Dockerコンテナを用いてプロジェクトをデプロイします：
+
+```bash
+aws sso login --profile profile-name
+make deploy aws_profile=profile-name
+```
+
 ---
 
 ## 📂 ディレクトリ構成（例）

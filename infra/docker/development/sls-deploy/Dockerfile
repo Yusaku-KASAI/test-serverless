@@ -1,5 +1,5 @@
 # Dockerfile
-FROM --platform=linux/amd64 python:3.11-slim
+FROM --platform=linux/amd64 python:3.12-slim
 
 # 必要なパッケージをインストール(lessはoptional)
 RUN apt-get update && apt-get install -y \
