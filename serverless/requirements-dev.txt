@@ -1,0 +1,9 @@
+pytest
+pytest-cov
+pytest-asyncio
+pytest-mock
+requests-mock
+aioresponses
+boto3
+urllib3<2
+cryptography

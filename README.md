@@ -5,11 +5,11 @@ Python ランタイム、複数プラグイン、Docker コンテナを利用し
 
 ---
 
-## 🛠 プロジェクト作成ログ(リポジトリではこれが完了した状態なので参考程度)
+## 🛠 プロジェクト作成ログ
 
-以下の順でプロジェクトを作成します
+> ※このリポジトリはプロジェクト作成後の状態です。以下は参考情報としてご利用ください。
 
-### 🔧 初期状態とファイル構成
+### 📁 初期状態とファイル構成
 
 プロジェクト作成前は以下のファイル構成になっています：
 
@@ -80,13 +80,34 @@ docker compose exec sls-deploy serverless plugin install --name serverless-domai
 
 ### ✅ プロバイダー設定
 
+- stage&region指定
+- 関数の一般指定(runtimeのみ)
+
 ### 🚀 関数定義
+
+- デフォルトのもののみ
+- メモリ、タイムアウト指定
+- 環境変数指定
+- layer指定
+- トリガー指定
+- 権限はまだなし
 
 ### 🧱 リソース定義
 
+- とりあえずまだなし
+
+### 📦 変数定義
+
+- 外部ファイル読み込めるように設定
+
 ### 🔌 プラグインの設定
 
-- とりあえず全てコメントアウト
+- serverless-iam-roles-per-functionをアンコメント（未使用）
+- serverless-python-requirementsを設定済&有効化
+- serverless-prune-pluginを設定済&有効化
+- serverless-plugin-lambda-insightsを設定済&有効化
+- serverless-plugin-aws-alertsはコメントアウトのまま
+- serverless-domain-managerはコメントアウトのまま
 
 ---
 

@@ -5,19 +5,60 @@ service: pj-name-serverless
 
 provider:
   name: aws
+  stage: stg
+  region: ap-northeast-1
   runtime: python3.12
 
 functions:
   hello:
     handler: handler.hello
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+    layers:
+      - Ref: PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
     events:
       - httpApi:
           path: /
           method: get
-# plugins:
-# - serverless-iam-roles-per-function
-# - serverless-python-requirements
-# - serverless-prune-plugin
-# - serverless-plugin-lambda-insights
+
+custom:
+  serverless-iam-roles-per-function:
+    defaultInherit: true
+  pythonRequirements:
+    pythonBin: python3.12
+    dockerizePip: false
+    usePipenv: false
+    usePoetry: false
+    requirePoetryLockFile: false
+    slim: true
+    strip: false
+    layer: true
+    noDeploy:
+      - pytest
+    useDownloadCache: true
+    useStaticCache: true
+  prune:
+    automatic: true
+    includeLayers: true
+    number: 3
+  lambdaInsights:
+    defaultLambdaInsights: true
+
+stages:
+  default:
+    params: ${file(./.env.${sls:stage}.yml)}
+  stg:
+    params: ${file(./.env.stg.yml)}
+  prd:
+    params: ${file(./.env.prd.yml)}
+
+plugins:
+  - serverless-iam-roles-per-function
+  - serverless-python-requirements
+  - serverless-prune-plugin
+  - serverless-plugin-lambda-insights
 # - serverless-plugin-aws-alerts
 # - serverless-domain-manager
