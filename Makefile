@@ -11,6 +11,10 @@ deploy:
 deploy-debug:
 	docker compose exec sls-deploy serverless deploy --stage $(stage) --region $(region) --aws-profile $(aws_profile) --debug
 
+.PHONY: create_domain
+create_domain:
+	docker compose exec sls-deploy serverless create_domain --stage $(stage) --region $(region) --aws-profile $(aws_profile)
+
 .PHONY: up
 up:
 	docker compose up -d

@@ -7,22 +7,417 @@ provider:
   name: aws
   stage: stg
   region: ap-northeast-1
+  #  以下はlambdaのデフォルト設定(置き換えのものもマージのものもある)
   runtime: python3.12
+  # memorySize: 128
+  # timeout: 10
+  # environment:
+  #   APP_ENV: ${param:APP_ENV}
+  #   API_ENDPOINT1: ${param:DOMAIN_NAME}/api/trigger1
+  #   API_ENDPOINT2: ${param:DOMAIN_NAME}/api/trigger2
+  # iam:
+  #   role:
+  #     statements:
+  #       - Effect: Allow
+  #         Action:
+  #           - s3:ListBucket
+  #         Resource:
+  #           - !Ref S3Bucket1
+  #           - !Ref S3Bucket2
+  # logRetentionInDays: 14
+  # vpc:
+  #   securityGroupIds:
+  #     - !Ref PjNameSg
+  #   subnetIds:
+  #     - !Ref PjNamePrivateSubnet1
+  #     - !Ref PjNamePrivateSubnet2
 
 functions:
-  hello:
-    handler: handler.hello
+  scheduleToApigateway:
+    handler: handlers/apigateway.call
     memorySize: 128
     timeout: 10
     environment:
       APP_ENV: ${param:APP_ENV}
+      API_ENDPOINT: https://${param:DOMAIN_NAME}/trigger1
+    name: ${self:service}-${sls:stage}-scheduleToApigateway
+    logRetentionInDays: 731
     layers:
-      - Ref: PythonRequirementsLambdaLayer
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+    events:
+      - schedule:
+          rate: rate(10 minutes)
+      - schedule:
+          rate:
+            - cron(0 0 * * ? *)
+
+  apigatewayToDynamodb:
+    handler: handlers/dynamodb.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+      DYNAMODB_TABLE_NAME: !Ref Dynamodb1
+    name: ${self:service}-${sls:stage}-apigatewayToDynamodb
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:PutItem
+        Resource:
+          - !GetAtt Dynamodb1.Arn
+    logRetentionInDays: 731
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
     maximumRetryAttempts: 0
     events:
       - httpApi:
-          path: /
+          path: /trigger1
           method: get
+
+  dynamodbToS3:
+    handler: handlers/s3.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+      S3_BUCKET_NAME: !Ref S3Bucket1
+    name: ${self:service}-${sls:stage}-dynamodbToS3
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - s3:PutObject
+        Resource:
+          - !Sub "${S3Bucket1.Arn}/*"
+    logRetentionInDays: 731
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+    events:
+      - stream:
+          type: dynamodb
+          arn: !GetAtt Dynamodb1.StreamArn
+          batchSize: 100
+          batchWindow: 5
+          startingPosition: LATEST
+
+  s3ToSns:
+    handler: handlers/sns.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+      SNS_TOPIC_ARN: !Ref SnsTopic1
+    name: ${self:service}-${sls:stage}-s3ToSns
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - sns:Publish
+        Resource:
+          - !Ref SnsTopic1
+    logRetentionInDays: 731
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+    events:
+      - s3:
+          bucket: !Ref S3Bucket1
+          event: s3:ObjectCreated:*
+          existing: true
+          rules:
+            - prefix: uploads/
+            - suffix: .json
+
+  snsToLog:
+    handler: handlers/log.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+    name: ${self:service}-${sls:stage}-snsToLog
+    logRetentionInDays: 731
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+    events:
+      - sns:
+          arn: !Ref SnsTopic1
+          topicName: ${self:service}-${sls:stage}-snstopic1
+
+  logToLambdainsights:
+    handler: handlers/lambdainsightsCpu.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+      LAMBDA_INSIGHTS_LOG_LEVEL: info
+    name: ${self:service}-${sls:stage}-logToLambdainsights
+    logRetentionInDays: 731
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+    events:
+      - sns:
+          arn: !Ref SnsTopic2
+          topicName: ${self:service}-${sls:stage}-snstopic2
+
+  lambdainsightsToInvoke:
+    handler: handlers/invoke.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+      NEXT_FUNCTION_NAME: ${self:functions.hello.name}
+    name: ${self:service}-${sls:stage}-lambdainsightsToInvoke
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - lambda:InvokeFunction
+        Resource:
+          - !Sub arn:aws:lambda:${aws:region}:${aws:accountId}:function:${self:functions.hello.name}
+    logRetentionInDays: 731
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+    events:
+      - sns:
+          arn: !Ref SnsTopic3
+          topicName: ${self:service}-${sls:stage}-snstopic3
+
+  hello:
+    handler: handlers/handler.hello
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+    name: ${self:service}-${sls:stage}-hello
+    logRetentionInDays: 731
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+
+  vpcScheduleToApigateway:
+    handler: handlers/apigateway.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+      API_ENDPOINT: https://${param:DOMAIN_NAME}/trigger2
+    name: ${self:service}-${sls:stage}-vpcScheduleToApigateway
+    logRetentionInDays: 731
+    vpc:
+      securityGroupIds:
+        - !Ref PjNameSg
+      subnetIds:
+        - !Ref PjNamePrivateSubnet1
+        - !Ref PjNamePrivateSubnet2
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+    events:
+      - schedule:
+          rate: rate(10 minutes)
+      - schedule:
+          rate:
+            - cron(0 0 * * ? *)
+
+  vpcApigatewayToDynamodb:
+    handler: handlers/dynamodb.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+      DYNAMODB_TABLE_NAME: !Ref Dynamodb2
+    name: ${self:service}-${sls:stage}-vpcApigatewayToDynamodb
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - dynamodb:PutItem
+        Resource:
+          - !GetAtt Dynamodb2.Arn
+    logRetentionInDays: 731
+    vpc:
+      securityGroupIds:
+        - !Ref PjNameSg
+      subnetIds:
+        - !Ref PjNamePrivateSubnet1
+        - !Ref PjNamePrivateSubnet2
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+    events:
+      - httpApi:
+          path: /trigger2
+          method: get
+
+  vpcDynamodbToS3:
+    handler: handlers/s3.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+      S3_BUCKET_NAME: !Ref S3Bucket2
+    name: ${self:service}-${sls:stage}-vpcDynamodbToS3
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - s3:PutObject
+        Resource:
+          - !Sub "${S3Bucket2.Arn}/*"
+    logRetentionInDays: 731
+    vpc:
+      securityGroupIds:
+        - !Ref PjNameSg
+      subnetIds:
+        - !Ref PjNamePrivateSubnet1
+        - !Ref PjNamePrivateSubnet2
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+    events:
+      - stream:
+          type: dynamodb
+          arn: !GetAtt Dynamodb2.StreamArn
+          batchSize: 100
+          batchWindow: 5
+          startingPosition: LATEST
+
+  vpcS3ToSns:
+    handler: handlers/sns.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+      SNS_TOPIC_ARN: !Ref SnsTopic4
+    name: ${self:service}-${sls:stage}-vpcS3ToSns
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - sns:Publish
+        Resource:
+          - !Ref SnsTopic4
+    logRetentionInDays: 731
+    vpc:
+      securityGroupIds:
+        - !Ref PjNameSg
+      subnetIds:
+        - !Ref PjNamePrivateSubnet1
+        - !Ref PjNamePrivateSubnet2
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+    events:
+      - s3:
+          bucket: !Ref S3Bucket2
+          event: s3:ObjectCreated:*
+          existing: true
+          rules:
+            - prefix: uploads/
+            - suffix: .json
+
+  vpcSnsToLog:
+    handler: handlers/log.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+    name: ${self:service}-${sls:stage}-vpcSnsToLog
+    logRetentionInDays: 731
+    vpc:
+      securityGroupIds:
+        - !Ref PjNameSg
+      subnetIds:
+        - !Ref PjNamePrivateSubnet1
+        - !Ref PjNamePrivateSubnet2
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+    events:
+      - sns:
+          arn: !Ref SnsTopic4
+          topicName: ${self:service}-${sls:stage}-snstopic4
+
+  vpcLogToLambdainsights:
+    handler: handlers/lambdainsightsMemory.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+      LAMBDA_INSIGHTS_LOG_LEVEL: info
+    name: ${self:service}-${sls:stage}-vpcLogToLambdainsights
+    logRetentionInDays: 731
+    vpc:
+      securityGroupIds:
+        - !Ref PjNameSg
+      subnetIds:
+        - !Ref PjNamePrivateSubnet1
+        - !Ref PjNamePrivateSubnet2
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+    events:
+      - sns:
+          arn: !Ref SnsTopic5
+          topicName: ${self:service}-${sls:stage}-snstopic5
+
+  vpcLambdainsightsToInvoke:
+    handler: handlers/invoke.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+      NEXT_FUNCTION_NAME: ${self:functions.vpcInvokeToSecretsmanagerAndRds.name}
+    name: ${self:service}-${sls:stage}-vpcLambdainsightsToInvoke
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - lambda:InvokeFunction
+        Resource:
+          - !Sub arn:aws:lambda:${aws:region}:${aws:accountId}:function:${self:functions.vpcInvokeToSecretsmanagerAndRds.name}
+    logRetentionInDays: 731
+    vpc:
+      securityGroupIds:
+        - !Ref PjNameSg
+      subnetIds:
+        - !Ref PjNamePrivateSubnet1
+        - !Ref PjNamePrivateSubnet2
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
+    events:
+      - sns:
+          arn: !Ref SnsTopic6
+          topicName: ${self:service}-${sls:stage}-snstopic6
+
+  vpcInvokeToSecretsmanagerAndRds:
+    handler: handlers/rds.call
+    memorySize: 128
+    timeout: 10
+    environment:
+      APP_ENV: ${param:APP_ENV}
+      DB_SECRET_ARN: !GetAtt PjNameRds.MasterUserSecret.SecretArn
+      DB_HOST: !GetAtt PjNameRds.Endpoint.Address
+      DB_PORT: !GetAtt PjNameRds.Endpoint.Port
+      DB_NAME: db_test
+      DB_USER: admin
+    name: ${self:service}-${sls:stage}-vpcInvokeToSecretsmanagerAndRds
+    iamRoleStatementsName: pj-name-serverless-stg-vpcInvokeToSecretsmanagerAndRds-ap-ne-1 # role名が長いのでカスタマイズ
+    iamRoleStatements:
+      - Effect: Allow
+        Action:
+          - secretsmanager:GetSecretValue
+        Resource:
+          - !GetAtt PjNameRds.MasterUserSecret.SecretArn
+    logRetentionInDays: 731
+    vpc:
+      securityGroupIds:
+        - !Ref PjNameSg
+      subnetIds:
+        - !Ref PjNamePrivateSubnet1
+        - !Ref PjNamePrivateSubnet2
+    layers:
+      - !Ref PythonRequirementsLambdaLayer
+    maximumRetryAttempts: 0
 
 custom:
   serverless-iam-roles-per-function:
@@ -46,6 +441,18 @@ custom:
     number: 3
   lambdaInsights:
     defaultLambdaInsights: true
+  customDomain:
+    domainName: ${param:DOMAIN_NAME}
+    stage: $default # httpapiでは基本$defautltステージ
+    basePath: "" # httpapiの$defaultステージでは指定できない?
+    certificateName: ${param:CERTIFICATE_NAME}
+    certificateArn: ${param:CERTIFICATE_ARN}
+    createRoute53Record: true
+    createRoute53IPv6Record: true
+    endpointType: regional
+    securityPolicy: tls_1_2
+    apiType: http
+    autoDomain: false
 
 stages:
   default:
@@ -55,10 +462,318 @@ stages:
   prd:
     params: ${file(./.env.prd.yml)}
 
+resources:
+  Resources:
+    # Dynamodb, S3, SNS for lambda outside VPC
+    Dynamodb1:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:service}-${sls:stage}-dynamodb1
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+    S3Bucket1:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:service}-${sls:stage}-s3bucket1
+    SnsTopic1:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:service}-${sls:stage}-snstopic1
+    SnsTopic2:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:service}-${sls:stage}-snstopic2
+    SnsTopic3:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:service}-${sls:stage}-snstopic3
+    # cloudwatch log metric filter and alarm for lambda outside VPC
+    PjNameLogMetricFilter:
+      Type: AWS::Logs::MetricFilter
+      DependsOn: VpcSnsToLogLambdaFunction
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${sls:stage}-snsToLog
+        FilterPattern: "ERROR"
+        MetricTransformations:
+          - MetricValue: "1"
+            MetricNamespace: "${self:service}-${sls:stage}-namespace"
+            MetricName: "ErrorCount1"
+    PjNameLogAlarm:
+      Type: AWS::CloudWatch::Alarm
+      DependsOn: PjNameLogMetricFilter
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-log-alarm
+        AlarmDescription: "Alarm when error count exceeds 5"
+        MetricName: "ErrorCount1"
+        Namespace: "${self:service}-${sls:stage}-namespace"
+        Statistic: Sum
+        Period: 10
+        EvaluationPeriods: 1
+        Threshold: 1
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        AlarmActions:
+          - !Ref SnsTopic2
+    # cloudwatch alarm from lambda insights for lambda outside VPC
+    PjNameLambdaInsightsAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-log-to-lambdainsights-cpu-alarm
+        AlarmDescription: "Alarm when Lambda CPU utilization exceeds 90% (LambdaInsights)"
+        MetricName: cpu_utilization
+        Namespace: LambdaInsights #確証はないのだが、コンソールから確認した感じだとこの名前空間だった、ドキュメントは見つけられず、、
+        Statistic: Maximum
+        Period: 1800 # Lambda Insightsのメトリクスは最大20分程度遅延するため？
+        EvaluationPeriods: 1
+        Threshold: 90
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        Dimensions: # これもちょっとよくわかっていない、slsの論理名予測など
+          - Name: function_name # コンソールからよく確認
+            Value: ${self:functions.logToLambdainsights.name}
+        AlarmActions:
+          - !Ref SnsTopic3
+    # VPC and Networking Resources
+    PjNameVpc:
+      Type: AWS::EC2::VPC
+      Properties:
+        CidrBlock: 10.0.0.0/16
+        EnableDnsSupport: true
+        EnableDnsHostnames: true
+    PjNamePublicSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref PjNameVpc
+        CidrBlock: 10.0.0.0/24
+        AvailabilityZone: ap-northeast-1a
+    PjNamePublicSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref PjNameVpc
+        CidrBlock: 10.0.1.0/24
+        AvailabilityZone: ap-northeast-1c
+    PjNamePrivateSubnet1:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref PjNameVpc
+        CidrBlock: 10.0.2.0/24
+        AvailabilityZone: ap-northeast-1a
+    PjNamePrivateSubnet2:
+      Type: AWS::EC2::Subnet
+      Properties:
+        VpcId: !Ref PjNameVpc
+        CidrBlock: 10.0.3.0/24
+        AvailabilityZone: ap-northeast-1c
+    PjNameSg:
+      Type: AWS::EC2::SecurityGroup
+      Properties:
+        GroupDescription: Allow all inbound traffic
+        VpcId: !Ref PjNameVpc
+    PjNameSgIngress:
+      Type: AWS::EC2::SecurityGroupIngress
+      Properties:
+        GroupId: !Ref PjNameSg
+        IpProtocol: -1
+        SourceSecurityGroupId: !Ref PjNameSg
+    PjNameInternetGateway:
+      Type: AWS::EC2::InternetGateway
+      Properties:
+        Tags:
+          - Key: Name
+            Value: ${self:service}-${sls:stage}-igw
+    PjNameVpcGatewayAttachment:
+      Type: AWS::EC2::VPCGatewayAttachment
+      Properties:
+        VpcId: !Ref PjNameVpc
+        InternetGatewayId: !Ref PjNameInternetGateway
+    PjNamePublicRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref PjNameVpc
+    PjNamePublicRoute:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId: !Ref PjNamePublicRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        GatewayId: !Ref PjNameInternetGateway
+    PjNameSubnetRouteTableAssociation1:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PjNamePublicSubnet1
+        RouteTableId: !Ref PjNamePublicRouteTable
+    PjNameSubnetRouteTableAssociation2:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PjNamePublicSubnet2
+        RouteTableId: !Ref PjNamePublicRouteTable
+    PjNameNatGateway:
+      Type: AWS::EC2::NatGateway
+      Properties:
+        AllocationId: !GetAtt PjNameEip.AllocationId
+        SubnetId: !Ref PjNamePublicSubnet1
+    PjNameEip:
+      Type: AWS::EC2::EIP
+      Properties:
+        Domain: vpc
+    PjNamePrivateRouteTable:
+      Type: AWS::EC2::RouteTable
+      Properties:
+        VpcId: !Ref PjNameVpc
+    PjNamePrivateRoute:
+      Type: AWS::EC2::Route
+      Properties:
+        RouteTableId: !Ref PjNamePrivateRouteTable
+        DestinationCidrBlock: 0.0.0.0/0
+        NatGatewayId: !Ref PjNameNatGateway
+    PjNameSubnetRouteTableAssociation3:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PjNamePrivateSubnet1
+        RouteTableId: !Ref PjNamePrivateRouteTable
+    PjNameSubnetRouteTableAssociation4:
+      Type: AWS::EC2::SubnetRouteTableAssociation
+      Properties:
+        SubnetId: !Ref PjNamePrivateSubnet2
+        RouteTableId: !Ref PjNamePrivateRouteTable
+    # RDS ans secretsmanager(created by rds) in VPC
+    PjNameRds:
+      Type: AWS::RDS::DBInstance
+      Properties:
+        DBInstanceIdentifier: ${self:service}-${sls:stage}-rds
+        DBInstanceClass: db.t3.micro
+        Engine: mysql
+        ManageMasterUserPassword: true
+        MasterUsername: admin
+        AllocatedStorage: 20
+        DBName: db_test
+        VPCSecurityGroups:
+          - !Ref PjNameSg
+        DBSubnetGroupName: !Ref PjNameDbSubnetGroup
+    PjNameDbSubnetGroup:
+      Type: AWS::RDS::DBSubnetGroup
+      Properties:
+        DBSubnetGroupDescription: Subnet group for RDS
+        SubnetIds:
+          - !Ref PjNamePrivateSubnet1
+          - !Ref PjNamePrivateSubnet2
+        DBSubnetGroupName: ${self:service}-${sls:stage}-db-subnet-group
+    # Dynamodb, S3, SNS for lambda inside VPC
+    Dynamodb2:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:service}-${sls:stage}-dynamodb2
+        AttributeDefinitions:
+          - AttributeName: id
+            AttributeType: S
+        KeySchema:
+          - AttributeName: id
+            KeyType: HASH
+        ProvisionedThroughput:
+          ReadCapacityUnits: 5
+          WriteCapacityUnits: 5
+        StreamSpecification:
+          StreamViewType: NEW_AND_OLD_IMAGES
+    S3Bucket2:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: ${self:service}-${sls:stage}-s3bucket2
+    SnsTopic4:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:service}-${sls:stage}-snstopic4
+    SnsTopic5:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:service}-${sls:stage}-snstopic5
+    SnsTopic6:
+      Type: AWS::SNS::Topic
+      Properties:
+        TopicName: ${self:service}-${sls:stage}-snstopic6
+    # cloudwatch log metric filter and alarm for lambda inside VPC
+    PjNameVpcLogMetricFilter:
+      Type: AWS::Logs::MetricFilter
+      DependsOn: VpcSnsToLogLambdaFunction
+      Properties:
+        LogGroupName: /aws/lambda/${self:service}-${sls:stage}-vpcSnsToLog
+        FilterPattern: "ERROR"
+        MetricTransformations:
+          - MetricValue: "1"
+            MetricNamespace: "${self:service}-${self:provider.stage}-namespace"
+            MetricName: "ErrorCount2"
+    PjNameVpcLogAlarm:
+      Type: AWS::CloudWatch::Alarm
+      DependsOn: PjNameVpcLogMetricFilter
+      Properties:
+        AlarmName: ${self:service}-${self:provider.stage}-vpc-log-alarm
+        AlarmDescription: "Alarm when error count exceeds 5"
+        MetricName: "ErrorCount2"
+        Namespace: "${self:service}-${self:provider.stage}-namespace"
+        Statistic: Sum
+        Period: 10
+        EvaluationPeriods: 1
+        Threshold: 1
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        AlarmActions:
+          - !Ref SnsTopic5
+    # cloudwatch alarm from lambda insights for lambda inside VPC
+    PjNameVpcLambdaInsightsAlarm:
+      Type: AWS::CloudWatch::Alarm
+      Properties:
+        AlarmName: ${self:service}-${sls:stage}-vpc-log-to-lambdainsights-memory-alarm
+        AlarmDescription: "Alert when Lambda memory utilization exceeds 90% (LambdaInsights)"
+        MetricName: memory_utilization
+        Namespace: LambdaInsights #確証はないのだが、コンソールから確認した感じだとこの名前空間だった、ドキュメントは見つけられず、、
+        Statistic: Maximum
+        Period: 1800 # Lambda Insightsのメトリクスは最大20分程度遅延するため？
+        EvaluationPeriods: 1
+        Threshold: 90
+        ComparisonOperator: GreaterThanOrEqualToThreshold
+        Dimensions: # これもちょっとよくわかっていない、slsの論理名予測など
+          - Name: function_name # コンソールからよく確認
+            Value: ${self:functions.vpcLogToLambdainsights.name}
+        AlarmActions:
+          - !Ref SnsTopic6
+    # VPC endpoint for S3, DynamoDB, and Secrets Manager
+    PjNameVpcEndpointS3:
+      Type: AWS::EC2::VPCEndpoint
+      Properties:
+        VpcId: !Ref PjNameVpc
+        ServiceName: !Sub "com.amazonaws.${AWS::Region}.s3"
+        RouteTableIds:
+          - !Ref PjNamePublicRouteTable
+          - !Ref PjNamePrivateRouteTable
+    PjNameVpcEndpointDynamoDB:
+      Type: AWS::EC2::VPCEndpoint
+      Properties:
+        VpcId: !Ref PjNameVpc
+        ServiceName: !Sub "com.amazonaws.${AWS::Region}.dynamodb"
+        RouteTableIds:
+          - !Ref PjNamePublicRouteTable
+          - !Ref PjNamePrivateRouteTable
+    PjNameVpcEndpointSecretsManager:
+      Type: AWS::EC2::VPCEndpoint
+      Properties:
+        VpcEndpointType: Interface
+        VpcId: !Ref PjNameVpc
+        ServiceName: !Sub "com.amazonaws.${AWS::Region}.secretsmanager"
+        PrivateDnsEnabled: true
+        SecurityGroupIds:
+          - !Ref PjNameSg
+        SubnetIds:
+          - !Ref PjNamePrivateSubnet1
+          - !Ref PjNamePrivateSubnet2
+
 plugins:
   - serverless-iam-roles-per-function
   - serverless-python-requirements
   - serverless-prune-plugin
   - serverless-plugin-lambda-insights
+  - serverless-domain-manager
 # - serverless-plugin-aws-alerts
-# - serverless-domain-manager

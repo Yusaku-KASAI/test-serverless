@@ -1,6 +1,6 @@
 # test-serverless
 
-Serverless Framework を使用して AWS Lambda を構築するためのテンプレートリポジトリです。  
+Serverless Framework を使用して AWS Lambda を構築するためのテンプレートリポジトリです。
 Python ランタイム、複数プラグイン、Docker コンテナを利用し、開発・デプロイを効率化します。
 
 ---
@@ -13,11 +13,11 @@ Python ランタイム、複数プラグイン、Docker コンテナを利用し
 
 プロジェクト作成前は以下のファイル構成になっています：
 
-- `./infra/`：インフラ定義ファイル群
-- `.gitignore`
-- `docker-compose.yml`
-- `Makefile`
-- `README.md`
+* `./infra/`：インフラ定義ファイル群
+* `.gitignore`
+* `docker-compose.yml`
+* `Makefile`
+* `README.md`
 
 > ⚠️ `serverless/` ディレクトリは不要です（プロジェクト作成時に生成されます）
 
@@ -76,48 +76,66 @@ docker compose exec sls-deploy serverless plugin install --name serverless-domai
 
 ---
 
-## ⚙️ `serverless.yml` の設定項目
+## ⚙️ serverless.yml の設定項目
 
 ### ✅ プロバイダー設定
 
-- stage&region指定
-- 関数の一般指定(runtimeのみ)
+* `stage` & `region` 指定
+* ランタイムは Python 3.12
+* その他関数の基本共通設定も可能
 
-### 🚀 関数定義
+### 🚀 関数定義（抜粋）
 
-- デフォルトのもののみ
-- メモリ、タイムアウト指定
-- 環境変数指定
-- layer指定
-- トリガー指定
-- 権限はまだなし
+* Lambda 関数を複数定義
+* メモリ/タイムアウトの個別指定
+* `environment` で環境変数を注入
+* `layers` の活用
+* 各種トリガー（HTTP, Schedule, S3, DynamoDB, SNS）に対応
+* VPC対応Lambdaと非VPC Lambdaを混在
 
-### 🧱 リソース定義
+### 🔐 IAM定義（serverless-iam-roles-per-function）
 
-- とりあえずまだなし
+* 関数ごとに権限分離
+* `iamRoleStatements` による最小権限ポリシー設定
 
-### 📦 変数定義
+### 🧱 リソース定義（CloudFormation）
 
-- 外部ファイル読み込めるように設定
+* DynamoDB, S3, SNS, RDS, SecretsManager
+* CloudWatch Logs/Alarms、Lambda Insights
+* VPC, NAT Gateway, Internet Gateway, Subnet, RouteTable などの基本ネットワーク構成
+* VPC Endpoint (S3 / DynamoDB / SecretsManager)
 
-### 🔌 プラグインの設定
+### 📦 環境変数と外部ファイル
 
-- serverless-iam-roles-per-functionをアンコメント（未使用）
-- serverless-python-requirementsを設定済&有効化
-- serverless-prune-pluginを設定済&有効化
-- serverless-plugin-lambda-insightsを設定済&有効化
-- serverless-plugin-aws-alertsはコメントアウトのまま
-- serverless-domain-managerはコメントアウトのまま
+* `.env.stg.yml` や `.env.prd.yml` にパラメータを外出し
+* `param:` を用いた柔軟な参照を実現
+
+### 🔌 プラグイン設定
+
+* `serverless-iam-roles-per-function`: IAM 分離を有効化
+* `serverless-python-requirements`: Python の依存関係解決とレイヤー化
+* `serverless-prune-plugin`: 古いデプロイの自動削除
+* `serverless-plugin-lambda-insights`: Lambda Insights をデフォルトで有効化
+* `serverless-domain-manager`: カスタムドメインに対応
 
 ---
 
 ## 🚀 プロジェクトデプロイ（コンテナから）
 
-以下のコマンドで、デプロイ用Dockerコンテナを用いてプロジェクトをデプロイします：
+以下のコマンドで、SSO プロファイルを使用してデプロイできます：
 
 ```bash
 aws sso login --profile profile-name
 make deploy aws_profile=profile-name
+```
+
+初回デプロイ時はドメイン作成のため以下のコマンドをデプロイ前に打ちます：
+
+> ⚠️ 必要に応じて.env.stg.ymlなどのenvファイルを事前に作成してください
+
+```bash
+aws sso login --profile profile-name
+make create_domain aws_profile=profile-name
 ```
 
 ---
@@ -125,29 +143,54 @@ make deploy aws_profile=profile-name
 ## 📂 ディレクトリ構成（例）
 
 ```bash
-test-serverless/.
+test-serverless/
 ├── docker-compose.yml
 ├── Makefile
 ├── README.md
-├── infra
-│   └── docker
-│       └── development
-│           ├── python
+├── infra/
+│   └── docker/
+│       └── development/
+│           ├── python/
 │           │   └── Dockerfile
-│           ├── sls-create
+│           ├── sls-create/
 │           │   └── Dockerfile
-│           └── sls-deploy
+│           └── sls-deploy/
 │               └── Dockerfile
-└── serverless
+└── serverless/
     ├── .gitignore
     ├── handler.py
     ├── README.md
-    └── serverless.yml
+    ├── requirements.txt
+    ├── .env.stg.yml
+    ├── serverless.yml
+    └── handlers/
+        ├── apigateway.py
+        ├── dynamodb.py
+        ├── handler.py
+        ├── invoke.py
+        ├── lambdainsightsCpu.py
+        ├── lambdainsightsMemory.py
+        ├── log.py
+        ├── rds.py
+        ├── s3.py
+        └── sns.py
 ```
 
 ---
 
 ## 📚 補足
 
-- Serverless のバージョンは v4 以上を想定(v3までは無料だが、sso利用時にserverless-better-credentialsプラグインが必要)
-- Serverless Framework の詳細は [公式ドキュメント](https://www.serverless.com/framework/docs/) を参照
+* Serverless のバージョンは v4 以上（v3 以前では一部機能非対応）
+* Serverless.yml の構造や `!Ref`, `!GetAtt` の CloudFormation 構文は公式ドキュメント参照
+* `.env.stg.yml` による Secrets 情報も適切にハンドリング済
+* 今回は事前に認証されたACMおよびホストゾーンのみコンソールでセットアップしている
+* 本来はserverlessで管理すべきは、Lambda, APIgateway, dynamoDB, Cloudwatch, SNS(serverlessの運用監視用), IAM(serverless関連), のみにすべきである
+* 今回の例では、LambdaInsightsの遅延の影響もあり、アラーム状態が解除されない場合もある（アラームアクションが発火しない）ので適宜調整するようにしたい
+* LambdaInsightsをクビにしてログメトリクスフィルタでアラームを飛ばすのもあり(cpuの値などはとれないけど、、メモリとかはいけるので適宜良さそうな構成にする)
+
+---
+
+## 🔗 参考
+
+* [Serverless Framework 公式ドキュメント](https://www.serverless.com/framework/docs/)
+* [AWS CloudFormation リファレンス](https://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/aws-template-format-reference.html)
