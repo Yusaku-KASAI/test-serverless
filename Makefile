@@ -5,11 +5,27 @@ aws_profile?=default
 
 .PHONY: deploy
 deploy:
-	docker compose exec sls-deploy serverless deploy --stage $(stage) --region $(region) --aws-profile $(aws_profile)
+	docker compose exec sls-deploy serverless deploy --stage $(stage) --region $(region) --aws-profile $(aws_profile) --param="WAF_WEB_ACL_ARN=$(WAF_WEB_ACL_ARN)"
 
 .PHONY: deploy-debug
 deploy-debug:
 	docker compose exec sls-deploy serverless deploy --stage $(stage) --region $(region) --aws-profile $(aws_profile) --debug
+
+.PHONY: deploy-global
+deploy-global:
+	docker compose exec sls-deploy serverless deploy --config serverless-global.yml --stage $(stage) --region us-east-1 --aws-profile $(aws_profile)
+
+.PHONY: deploy-all
+deploy-all:
+	make deploy-global aws_profile=$(aws_profile) stage=$(stage)
+	WAF_WEB_ACL_ARN=$$(aws cloudformation describe-stacks \
+	--stack-name pj-name-serverless-global-$(stage) \
+	--query "Stacks[0].Outputs[?OutputKey=='WafWebAclArn'].OutputValue" \
+	--output text \
+	--region us-east-1 \
+	--profile $(aws_profile)) && \
+	echo "WAF_WEB_ACL_ARN: $$WAF_WEB_ACL_ARN" && \
+	make deploy aws_profile=$(aws_profile) stage=$(stage) region=$(region) WAF_WEB_ACL_ARN=$$WAF_WEB_ACL_ARN
 
 .PHONY: create_domain
 create_domain:

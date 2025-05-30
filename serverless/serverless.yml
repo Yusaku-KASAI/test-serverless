@@ -39,7 +39,7 @@ functions:
     timeout: 10
     environment:
       APP_ENV: ${param:APP_ENV}
-      API_ENDPOINT: https://${param:DOMAIN_NAME}/trigger1
+      API_ENDPOINT: https://${param:DOMAIN_NAME}/api/trigger1
     name: ${self:service}-${sls:stage}-scheduleToApigateway
     logRetentionInDays: 731
     layers:
@@ -72,7 +72,7 @@ functions:
     maximumRetryAttempts: 0
     events:
       - httpApi:
-          path: /trigger1
+          path: /api/trigger1
           method: get
 
   dynamodbToS3:
@@ -202,7 +202,7 @@ functions:
     timeout: 10
     environment:
       APP_ENV: ${param:APP_ENV}
-      API_ENDPOINT: https://${param:DOMAIN_NAME}/trigger2
+      API_ENDPOINT: https://${param:DOMAIN_NAME}/api/trigger2
     name: ${self:service}-${sls:stage}-vpcScheduleToApigateway
     logRetentionInDays: 731
     vpc:
@@ -247,7 +247,7 @@ functions:
     maximumRetryAttempts: 0
     events:
       - httpApi:
-          path: /trigger2
+          path: /api/trigger2
           method: get
 
   vpcDynamodbToS3:
@@ -769,6 +769,189 @@ resources:
         SubnetIds:
           - !Ref PjNamePrivateSubnet1
           - !Ref PjNamePrivateSubnet2
+    # CloudFront distribution for S3 bucket and API Gateway
+    PjNameCloudFrontDistribution:
+      Type: AWS::CloudFront::Distribution
+      Properties:
+        DistributionConfig:
+          Enabled: true
+          PriceClass: PriceClass_All
+          Origins:
+            - Id: S3Origin
+              DomainName: !GetAtt S3Bucket1.DomainName
+              OriginAccessControlId: !GetAtt CloudFrontS3OriginAccessControl.Id
+              S3OriginConfig:
+                OriginAccessIdentity: ""
+            - Id: ApiGatewayOrigin
+              DomainName: ${param:DOMAIN_NAME}
+              CustomOriginConfig:
+                HTTPPort: 80
+                HTTPSPort: 443
+                OriginProtocolPolicy: https-only
+                OriginSSLProtocols:
+                  - TLSv1.2
+          Aliases:
+            - ${param:CF_DOMAIN_NAME}
+          ViewerCertificate:
+            AcmCertificateArn: ${param:CF_CERTIFICATE_ARN}
+            MinimumProtocolVersion: TLSv1.2_2021
+            SslSupportMethod: sni-only
+          HttpVersion: http2
+          DefaultRootObject: index.html
+          DefaultCacheBehavior:
+            TargetOriginId: S3Origin
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+            OriginRequestPolicyId: !GetAtt CloudFrontOriginRequestPolicy.Id
+            CachePolicyId: !GetAtt CloudFrontCachePolicy.Id
+            FunctionAssociations: []
+            LambdaFunctionAssociations:
+              []
+              # - EventType: origin-request
+              #   IncludeBody: true
+              #   LambdaFunctionARN: !GetAtt PjNameLambdaEdgeFunction.Arn # Lambda@Edge function for custom headers gotten from another cloudformation stack
+            TrustedKeyGroups: []
+          CacheBehaviors:
+            - PathPattern: "/api/*"
+              TargetOriginId: ApiGatewayOrigin
+              ViewerProtocolPolicy: redirect-to-https
+              AllowedMethods:
+                - GET
+                - HEAD
+                - OPTIONS
+                - PUT
+                - POST
+                - PATCH
+                - DELETE
+              CachedMethods:
+                - GET
+                - HEAD
+              OriginRequestPolicyId: !GetAtt CloudFrontApiGatewayOriginRequestPolicy.Id
+              CachePolicyId: !GetAtt CloudFrontApiGatewayCachePolicy.Id
+              FunctionAssociations: []
+              LambdaFunctionAssociations:
+                []
+                # - EventType: origin-request
+                #   IncludeBody: true
+                #   LambdaFunctionARN: !GetAtt PjNameLambdaEdgeFunction.Arn # Lambda@Edge function for custom headers gotten from another cloudformation stack
+              TrustedKeyGroups: []
+          WebACLId: ${param:WAF_WEB_ACL_ARN} # Web ACL for CloudFront gotten from another cloudformation stack
+    CloudFrontS3OriginAccessControl:
+      Type: AWS::CloudFront::OriginAccessControl
+      Properties:
+        OriginAccessControlConfig:
+          Name: !Sub "${self:service}-${sls:stage}-s3-origin-access-control"
+          OriginAccessControlOriginType: s3
+          SigningBehavior: always
+          SigningProtocol: sigv4
+          Description: "Origin Access Control for S3 bucket access from CloudFront"
+    CloudFrontOriginRequestPolicy:
+      Type: AWS::CloudFront::OriginRequestPolicy
+      Properties:
+        OriginRequestPolicyConfig:
+          Name: !Sub "${self:service}-${sls:stage}-origin-request-policy"
+          Comment: "Origin Request Policy for CloudFront"
+          HeadersConfig:
+            HeaderBehavior: none
+          CookiesConfig:
+            CookieBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+    CloudFrontCachePolicy:
+      Type: AWS::CloudFront::CachePolicy
+      Properties:
+        CachePolicyConfig:
+          Name: !Sub "${self:service}-${sls:stage}-cache-policy"
+          Comment: "Cache Policy for CloudFront"
+          DefaultTTL: 86400
+          MaxTTL: 31536000
+          MinTTL: 0
+          ParametersInCacheKeyAndForwardedToOrigin:
+            CookiesConfig:
+              CookieBehavior: none
+            HeadersConfig:
+              HeaderBehavior: none
+            QueryStringsConfig:
+              QueryStringBehavior: none
+            EnableAcceptEncodingBrotli: true
+            EnableAcceptEncodingGzip: true
+    CloudFrontApiGatewayOriginRequestPolicy:
+      Type: AWS::CloudFront::OriginRequestPolicy
+      Properties:
+        OriginRequestPolicyConfig:
+          Name: !Sub "${self:service}-${sls:stage}-api-gateway-origin-request-policy"
+          Comment: "Origin Request Policy for API Gateway"
+          HeadersConfig:
+            HeaderBehavior: allExcept
+            Headers:
+              - Host
+          CookiesConfig:
+            CookieBehavior: all
+          QueryStringsConfig:
+            QueryStringBehavior: all
+    CloudFrontApiGatewayCachePolicy:
+      Type: AWS::CloudFront::CachePolicy
+      Properties:
+        CachePolicyConfig:
+          Name: !Sub "${self:service}-${sls:stage}-api-gateway-cache-policy"
+          Comment: "Cache Policy for API Gateway"
+          DefaultTTL: 0
+          MaxTTL: 0
+          MinTTL: 0
+          ParametersInCacheKeyAndForwardedToOrigin:
+            CookiesConfig:
+              CookieBehavior: none
+            HeadersConfig:
+              HeaderBehavior: none
+            QueryStringsConfig:
+              QueryStringBehavior: none
+            EnableAcceptEncodingBrotli: false
+            EnableAcceptEncodingGzip: false
+    PjNameS3BucketPolicy:
+      Type: AWS::S3::BucketPolicy
+      Properties:
+        Bucket: !Ref S3Bucket1
+        PolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service: "cloudfront.amazonaws.com"
+              Action:
+                - s3:GetObject
+              Resource:
+                - !Sub "${S3Bucket1.Arn}/*"
+              Condition:
+                StringEquals:
+                  "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${PjNameCloudFrontDistribution}"
+    # PjNameWafWebAcl:
+    #   Type: AWS::WAFv2::WebACL
+    #   Properties:
+    #     Name: ${self:service}-${sls:stage}-web-acl
+    #     Scope: CLOUDFRONT
+    #     DefaultAction:
+    #       Allow: {}
+    #     VisibilityConfig:
+    #       SampledRequestsEnabled: true
+    #       CloudWatchMetricsEnabled: true
+    #       MetricName: ${self:service}-${sls:stage}-web-acl-metric
+    #     Rules:
+    #       - Name: BlockBadBots
+    #         Priority: 1
+    #         Statement:
+    #           ManagedRuleGroupStatement:
+    #             VendorName: AWS
+    #             Name: AWSManagedRulesCommonRuleSet
+    #         VisibilityConfig:
+    #           SampledRequestsEnabled: true
+    #           CloudWatchMetricsEnabled: true
+    #           MetricName: BlockBadBotsMetric
 
 plugins:
   - serverless-iam-roles-per-function

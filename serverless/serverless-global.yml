@@ -1,0 +1,63 @@
+# "org" ensures this Service is used with the correct Serverless Framework Access Key.
+# org: org-name
+# "service" is the name of this project. This will also be added to your AWS resource names.
+service: pj-name-serverless-global
+
+provider:
+  name: aws
+  stage: stg
+  region: us-east-1
+  #  以下はlambdaのデフォルト設定(置き換えのものもマージのものもある)
+  runtime: python3.12
+  # memorySize: 128
+  # timeout: 10
+  # environment:
+  #   APP_ENV: ${param:APP_ENV}
+  #   API_ENDPOINT1: ${param:DOMAIN_NAME}/api/trigger1
+  #   API_ENDPOINT2: ${param:DOMAIN_NAME}/api/trigger2
+  # iam:
+  #   role:
+  #     statements:
+  #       - Effect: Allow
+  #         Action:
+  #           - s3:ListBucket
+  #         Resource:
+  #           - !Ref S3Bucket1
+  #           - !Ref S3Bucket2
+  # logRetentionInDays: 14
+  # vpc:
+  #   securityGroupIds:
+  #     - !Ref PjNameSg
+  #   subnetIds:
+  #     - !Ref PjNamePrivateSubnet1
+  #     - !Ref PjNamePrivateSubnet2
+
+stages:
+  default:
+    params: ${file(./.env.${sls:stage}.yml)}
+  stg:
+    params: ${file(./.env.stg.yml)}
+  prd:
+    params: ${file(./.env.prd.yml)}
+
+resources:
+  Resources:
+    PjNameWafWebAcl:
+      Type: AWS::WAFv2::WebACL
+      Properties:
+        Name: ${self:service}-${sls:stage}-web-acl
+        Scope: CLOUDFRONT
+        DefaultAction:
+          Allow: {}
+        VisibilityConfig:
+          SampledRequestsEnabled: true
+          CloudWatchMetricsEnabled: true
+          MetricName: ${self:service}-${sls:stage}-web-acl-metric
+        Rules: []
+
+  Outputs:
+    WafWebAclArn:
+      Description: "WAF WebACL ARN for CloudFront"
+      Value: !GetAtt PjNameWafWebAcl.Arn
+      Export:
+        Name: pj-name-serverless-stg-web-acl-arn

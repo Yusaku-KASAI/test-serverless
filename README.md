@@ -129,9 +129,11 @@ aws sso login --profile profile-name
 make deploy aws_profile=profile-name
 ```
 
-初回デプロイ時はドメイン作成のため以下のコマンドをデプロイ前に打ちます：
+初回デプロイ時はドメイン作成のため以下の用意をしてください：
 
-> ⚠️ 必要に応じて.env.stg.ymlなどのenvファイルを事前に作成してください
+> ⚠️ 必要に応じて.env.stg.ymlなどのenvファイルを事前に作成してください。
+> また、ホストゾーンや証明書なども事前に用意してください。CloudfrontへのAレコードはデプロイ後に手動で作成してください。
+> 準備ができたら以下のコマンドでapigatewayのカスタムドメインを作成します。
 
 ```bash
 aws sso login --profile profile-name
@@ -187,6 +189,9 @@ test-serverless/
 * 本来はserverlessで管理すべきは、Lambda, APIgateway, dynamoDB, Cloudwatch, SNS(serverlessの運用監視用), IAM(serverless関連), のみにすべきである
 * 今回の例では、LambdaInsightsの遅延の影響もあり、アラーム状態が解除されない場合もある（アラームアクションが発火しない）ので適宜調整するようにしたい
 * LambdaInsightsをクビにしてログメトリクスフィルタでアラームを飛ばすのもあり(cpuの値などはとれないけど、、メモリとかはいけるので適宜良さそうな構成にする)
+* WAFとCloudFrontも追加したことにより、グローバルのスタックとリージョナルのスタックで二つのymlで管理している
+* ssmでの受け渡しはうまくいかなかったのでMakefileでパラメータの受け渡しをして解決している
+* LambdaEdgeは今回は見送った
 
 ---
 
