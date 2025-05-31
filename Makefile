@@ -5,11 +5,11 @@ aws_profile?=default
 
 .PHONY: deploy
 deploy:
-	docker compose exec sls-deploy serverless deploy --stage $(stage) --region $(region) --aws-profile $(aws_profile) --param="WAF_WEB_ACL_ARN=$(WAF_WEB_ACL_ARN)"
+	docker compose exec sls-deploy serverless deploy --stage $(stage) --region $(region) --aws-profile $(aws_profile) --param="WAF_WEB_ACL_ARN=$(WAF_WEB_ACL_ARN)" --param="LAMBDA_EDGE_VERSION_ARN=$(LAMBDA_EDGE_VERSION_ARN)"
 
 .PHONY: deploy-debug
 deploy-debug:
-	docker compose exec sls-deploy serverless deploy --stage $(stage) --region $(region) --aws-profile $(aws_profile) --debug
+	docker compose exec sls-deploy serverless deploy --stage $(stage) --region $(region) --aws-profile $(aws_profile) --debug --param="WAF_WEB_ACL_ARN=$(WAF_WEB_ACL_ARN)" --param="LAMBDA_EDGE_VERSION_ARN=$(LAMBDA_EDGE_VERSION_ARN)"
 
 .PHONY: deploy-global
 deploy-global:
@@ -25,11 +25,98 @@ deploy-all:
 	--region us-east-1 \
 	--profile $(aws_profile)) && \
 	echo "WAF_WEB_ACL_ARN: $$WAF_WEB_ACL_ARN" && \
-	make deploy aws_profile=$(aws_profile) stage=$(stage) region=$(region) WAF_WEB_ACL_ARN=$$WAF_WEB_ACL_ARN
+	LAMBDA_EDGE_FUNCTION_ARN=$$(aws cloudformation describe-stacks \
+	--stack-name pj-name-serverless-global-$(stage) \
+	--query "Stacks[0].Outputs[?OutputKey=='LambdaEdgeFunctionArn'].OutputValue" \
+	--output text \
+	--region us-east-1 \
+	--profile $(aws_profile)) && \
+	echo "LAMBDA_EDGE_FUNCTION_ARN: $$LAMBDA_EDGE_FUNCTION_ARN" && \
+	LAMBDA_EDGE_VERSION_ARN=$$(aws lambda list-versions-by-function \
+	--function-name $$LAMBDA_EDGE_FUNCTION_ARN \
+	--query "Versions[?Version!='$$LATEST'] | [-1].FunctionArn" \
+	--output text \
+	--region us-east-1 \
+	--profile $(aws_profile)) && \
+	echo "LAMBDA_EDGE_VERSION_ARN: $$LAMBDA_EDGE_VERSION_ARN" && \
+	make deploy aws_profile=$(aws_profile) stage=$(stage) region=$(region) WAF_WEB_ACL_ARN=$$WAF_WEB_ACL_ARN LAMBDA_EDGE_VERSION_ARN=$$LAMBDA_EDGE_VERSION_ARN
 
 .PHONY: create_domain
 create_domain:
-	docker compose exec sls-deploy serverless create_domain --stage $(stage) --region $(region) --aws-profile $(aws_profile)
+	docker compose exec sls-deploy serverless create_domain --stage $(stage) --region $(region) --aws-profile $(aws_profile) --param="WAF_WEB_ACL_ARN=dummy" --param="LAMBDA_EDGE_VERSION_ARN=dummy"
+
+.PHONY: delete_domain
+delete_domain:
+	docker compose exec sls-deploy serverless delete_domain --stage $(stage) --region $(region) --aws-profile $(aws_profile) --param="WAF_WEB_ACL_ARN=dummy" --param="LAMBDA_EDGE_VERSION_ARN=dummy"
+
+.PHONY: remove
+remove:
+	docker compose exec sls-deploy serverless remove --stage $(stage) --region $(region) --aws-profile $(aws_profile) --param="WAF_WEB_ACL_ARN=$(WAF_WEB_ACL_ARN)" --param="LAMBDA_EDGE_VERSION_ARN=$(LAMBDA_EDGE_VERSION_ARN)"
+
+.PHONY: remove-global
+remove-global:
+	docker compose exec sls-deploy serverless remove --config serverless-global.yml --stage $(stage) --region us-east-1 --aws-profile $(aws_profile)
+
+.PHONY: remove-all
+remove-all:
+	WAF_WEB_ACL_ARN=$$(aws cloudformation describe-stacks \
+	--stack-name pj-name-serverless-global-$(stage) \
+	--query "Stacks[0].Outputs[?OutputKey=='WafWebAclArn'].OutputValue" \
+	--output text \
+	--region us-east-1 \
+	--profile $(aws_profile)) && \
+	echo "WAF_WEB_ACL_ARN: $$WAF_WEB_ACL_ARN" && \
+	LAMBDA_EDGE_VERSION_ARN=$$(aws cloudformation describe-stacks \
+	--stack-name pj-name-serverless-global-$(stage) \
+	--query "Stacks[0].Outputs[?OutputKey=='LambdaEdgeFunctionArn'].OutputValue" \
+	--output text \
+	--region us-east-1 \
+	--profile $(aws_profile)) && \
+	echo "LAMBDA_EDGE_VERSION_ARN: $$LAMBDA_EDGE_VERSION_ARN" && \
+	make remove aws_profile=$(aws_profile) stage=$(stage) region=$(region) WAF_WEB_ACL_ARN=$$WAF_WEB_ACL_ARN LAMBDA_EDGE_VERSION_ARN=$$LAMBDA_EDGE_VERSION_ARN
+	make remove-global aws_profile=$(aws_profile) stage=$(stage)
+	make delete_domain aws_profile=$(aws_profile) stage=$(stage)
+
+.PHONY: remove-all-include-content
+remove-all-include-content:
+	make empty aws_profile=$(aws_profile) stage=$(stage)
+	WAF_WEB_ACL_ARN=$$(aws cloudformation describe-stacks \
+	--stack-name pj-name-serverless-global-$(stage) \
+	--query "Stacks[0].Outputs[?OutputKey=='WafWebAclArn'].OutputValue" \
+	--output text \
+	--region us-east-1 \
+	--profile $(aws_profile)) && \
+	echo "WAF_WEB_ACL_ARN: $$WAF_WEB_ACL_ARN" && \
+	LAMBDA_EDGE_VERSION_ARN=$$(aws cloudformation describe-stacks \
+	--stack-name pj-name-serverless-global-$(stage) \
+	--query "Stacks[0].Outputs[?OutputKey=='LambdaEdgeFunctionArn'].OutputValue" \
+	--output text \
+	--region us-east-1 \
+	--profile $(aws_profile)) && \
+	echo "LAMBDA_EDGE_VERSION_ARN: $$LAMBDA_EDGE_VERSION_ARN" && \
+	make remove aws_profile=$(aws_profile) stage=$(stage) region=$(region) WAF_WEB_ACL_ARN=$$WAF_WEB_ACL_ARN LAMBDA_EDGE_VERSION_ARN=$$LAMBDA_EDGE_VERSION_ARN
+	make remove-global aws_profile=$(aws_profile) stage=$(stage)
+	make delete_domain aws_profile=$(aws_profile) stage=$(stage)
+
+.PHONY: empty
+empty:
+	S3_BUCKET1_NAME=$$(aws cloudformation describe-stacks \
+	--stack-name pj-name-serverless-$(stage) \
+	--query "Stacks[0].Outputs[?OutputKey=='S3Bucket1Name'].OutputValue" \
+	--output text \
+	--region ap-northeast-1 \
+	--profile $(aws_profile)) && \
+	echo "S3_BUCKET1_NAME: $$S3_BUCKET1_NAME" && \
+	docker compose exec sls-deploy aws s3 rm s3://$$S3_BUCKET1_NAME --recursive --profile $(aws_profile)
+	S3_BUCKET2_NAME=$$(aws cloudformation describe-stacks \
+	--stack-name pj-name-serverless-$(stage) \
+	--query "Stacks[0].Outputs[?OutputKey=='S3Bucket2Name'].OutputValue" \
+	--output text \
+	--region ap-northeast-1 \
+	--profile $(aws_profile)) && \
+	echo "S3_BUCKET2_NAME: $$S3_BUCKET2_NAME" && \
+	docker compose exec sls-deploy aws s3 rm s3://$$S3_BUCKET2_NAME --recursive --profile $(aws_profile)
+
 
 .PHONY: up
 up:

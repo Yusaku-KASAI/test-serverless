@@ -811,11 +811,7 @@ resources:
             OriginRequestPolicyId: !GetAtt CloudFrontOriginRequestPolicy.Id
             CachePolicyId: !GetAtt CloudFrontCachePolicy.Id
             FunctionAssociations: []
-            LambdaFunctionAssociations:
-              []
-              # - EventType: origin-request
-              #   IncludeBody: true
-              #   LambdaFunctionARN: !GetAtt PjNameLambdaEdgeFunction.Arn # Lambda@Edge function for custom headers gotten from another cloudformation stack
+            LambdaFunctionAssociations: []
             TrustedKeyGroups: []
           CacheBehaviors:
             - PathPattern: "/api/*"
@@ -836,10 +832,9 @@ resources:
               CachePolicyId: !GetAtt CloudFrontApiGatewayCachePolicy.Id
               FunctionAssociations: []
               LambdaFunctionAssociations:
-                []
-                # - EventType: origin-request
-                #   IncludeBody: true
-                #   LambdaFunctionARN: !GetAtt PjNameLambdaEdgeFunction.Arn # Lambda@Edge function for custom headers gotten from another cloudformation stack
+                - EventType: viewer-request
+                  IncludeBody: true
+                  LambdaFunctionARN: ${param:LAMBDA_EDGE_VERSION_ARN} # Lambda@Edge function for custom headers gotten from another cloudformation stack
               TrustedKeyGroups: []
           WebACLId: ${param:WAF_WEB_ACL_ARN} # Web ACL for CloudFront gotten from another cloudformation stack
     CloudFrontS3OriginAccessControl:
@@ -930,28 +925,14 @@ resources:
               Condition:
                 StringEquals:
                   "AWS:SourceArn": !Sub "arn:aws:cloudfront::${AWS::AccountId}:distribution/${PjNameCloudFrontDistribution}"
-    # PjNameWafWebAcl:
-    #   Type: AWS::WAFv2::WebACL
-    #   Properties:
-    #     Name: ${self:service}-${sls:stage}-web-acl
-    #     Scope: CLOUDFRONT
-    #     DefaultAction:
-    #       Allow: {}
-    #     VisibilityConfig:
-    #       SampledRequestsEnabled: true
-    #       CloudWatchMetricsEnabled: true
-    #       MetricName: ${self:service}-${sls:stage}-web-acl-metric
-    #     Rules:
-    #       - Name: BlockBadBots
-    #         Priority: 1
-    #         Statement:
-    #           ManagedRuleGroupStatement:
-    #             VendorName: AWS
-    #             Name: AWSManagedRulesCommonRuleSet
-    #         VisibilityConfig:
-    #           SampledRequestsEnabled: true
-    #           CloudWatchMetricsEnabled: true
-    #           MetricName: BlockBadBotsMetric
+
+  Outputs:
+    S3Bucket1Name:
+      Description: "S3 Bucket Name for Lambda outside VPC"
+      Value: !Ref S3Bucket1
+    S3Bucket2Name:
+      Description: "S3 Bucket Name for Lambda inside VPC"
+      Value: !Ref S3Bucket2
 
 plugins:
   - serverless-iam-roles-per-function
@@ -959,4 +940,3 @@ plugins:
   - serverless-prune-plugin
   - serverless-plugin-lambda-insights
   - serverless-domain-manager
-# - serverless-plugin-aws-alerts
