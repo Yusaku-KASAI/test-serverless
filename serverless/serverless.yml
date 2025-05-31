@@ -3,12 +3,14 @@
 # "service" is the name of this project. This will also be added to your AWS resource names.
 service: pj-name-serverless
 
+frameworkVersion: "3"
+
 provider:
   name: aws
   stage: stg
   region: ap-northeast-1
   #  以下はlambdaのデフォルト設定(置き換えのものもマージのものもある)
-  runtime: python3.12
+  runtime: python3.11
   # memorySize: 128
   # timeout: 10
   # environment:
@@ -453,14 +455,10 @@ custom:
     securityPolicy: tls_1_2
     apiType: http
     autoDomain: false
-
-stages:
-  default:
-    params: ${file(./.env.${sls:stage}.yml)}
-  stg:
-    params: ${file(./.env.stg.yml)}
-  prd:
-    params: ${file(./.env.prd.yml)}
+params:
+  default: ${file(./.env.${sls:stage}.yml)}
+  stg: ${file(./.env.stg.yml)}
+  prd: ${file(./.env.prd.yml)}
 
 resources:
   Resources:
@@ -935,6 +933,7 @@ resources:
       Value: !Ref S3Bucket2
 
 plugins:
+  - serverless-better-credentials
   - serverless-iam-roles-per-function
   - serverless-python-requirements
   - serverless-prune-plugin
