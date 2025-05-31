@@ -50,13 +50,10 @@ custom:
     includeLayers: true
     number: 3
 
-stages:
-  default:
-    params: ${file(./.env.${sls:stage}.yml)}
-  stg:
-    params: ${file(./.env.stg.yml)}
-  prd:
-    params: ${file(./.env.prd.yml)}
+params:
+  default: ${file(./.env.${sls:stage}.yml)}
+  stg: ${file(./.env.stg.yml)}
+  prd: ${file(./.env.prd.yml)}
 
 resources:
   Resources:
@@ -111,6 +108,7 @@ resources:
         Name: ${self:service}-${sls:stage}-lambda-edge-function-arn
 
 plugins:
+  - serverless-better-credentials
   # - serverless-iam-roles-per-function # roleごと置き換えるので使用せず
   - serverless-prune-plugin
   # - serverless-lambda-edge-pre-existing-cloudfront # Cloudformation管理ではなさそうなので自分で制御する
