@@ -117,6 +117,7 @@ docker compose exec sls-deploy serverless plugin install --name serverless-domai
 * `serverless-prune-plugin`: 古いデプロイの自動削除
 * `serverless-plugin-lambda-insights`: Lambda Insights をデフォルトで有効化
 * `serverless-domain-manager`: カスタムドメインに対応
+* `serverless-lambda-edge-pre-existing-cloudfront`: cloudfrontへのlamdab@edgeの紐付け
 
 ---
 
@@ -138,6 +139,19 @@ make deploy aws_profile=profile-name
 ```bash
 aws sso login --profile profile-name
 make create_domain aws_profile=profile-name
+```
+
+---
+
+## 🗑️ リソース削除（コンテナから）
+
+以下のコマンドで、作成したAWSリソースを削除できます：
+
+> ⚠️ ホストゾーンのレコードやACMなどは手動で削除が必要かもしれません。
+
+```bash
+aws sso login --profile profile-name
+make remove-all aws_profile=profile-name
 ```
 
 ---
@@ -191,7 +205,9 @@ test-serverless/
 * LambdaInsightsをクビにしてログメトリクスフィルタでアラームを飛ばすのもあり(cpuの値などはとれないけど、、メモリとかはいけるので適宜良さそうな構成にする)
 * WAFとCloudFrontも追加したことにより、グローバルのスタックとリージョナルのスタックで二つのymlで管理している
 * ssmでの受け渡しはうまくいかなかったのでMakefileでパラメータの受け渡しをして解決している
-* LambdaEdgeは今回は見送った
+* LambdaEdgeも追加した、WAF&Lambda@Edge用のlambdaの作成->リージョナルのリソース(&CloudFront)の作成
+* LambdaEdgeはserverlessの拡張機能を使っていい感じにやろうと思ったが、stackに残らないので自分で定義した
+* リソース削除時はうまくいかないいこともあるのでその場合コマンドを都度うつ
 
 ---
 

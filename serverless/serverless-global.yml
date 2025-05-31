@@ -32,6 +32,24 @@ provider:
   #     - !Ref PjNamePrivateSubnet1
   #     - !Ref PjNamePrivateSubnet2
 
+functions:
+  lambdaEdgeViewerRequest:
+    handler: handlers/edge.viewer_request
+    memorySize: 128 # Lambda@Edgeの制限は128MB
+    timeout: 5 # Lambda@Edgeの制限は5秒
+    name: ${self:service}-${sls:stage}-lambdaEdgeViewerRequest
+    role: !GetAtt LambdaEdgeViewerRequestFunctionRole.Arn # policyのマージでなくロールごと置き換える(assumeRolePoicyを指定するため)
+    logRetentionInDays: 731
+    maximumRetryAttempts: 0
+
+custom:
+  serverless-iam-roles-per-function:
+    defaultInherit: true
+  prune:
+    automatic: true
+    includeLayers: true
+    number: 3
+
 stages:
   default:
     params: ${file(./.env.${sls:stage}.yml)}
@@ -54,10 +72,45 @@ resources:
           CloudWatchMetricsEnabled: true
           MetricName: ${self:service}-${sls:stage}-web-acl-metric
         Rules: []
+    LambdaEdgeViewerRequestFunctionRole:
+      Type: AWS::IAM::Role
+      Properties:
+        RoleName: pj-name-sls-${sls:stage}-edgelambda-us-es-1
+        AssumeRolePolicyDocument:
+          Version: "2012-10-17"
+          Statement:
+            - Effect: Allow
+              Principal:
+                Service:
+                  - "edgelambda.amazonaws.com"
+                  - "lambda.amazonaws.com"
+              Action:
+                - sts:AssumeRole
+        Policies:
+          - PolicyName: LambdaEdgeViewerRequestFunctionPolicy
+            PolicyDocument:
+              Version: "2012-10-17"
+              Statement:
+                - Effect: Allow
+                  Action:
+                    - logs:CreateLogGroup
+                    - logs:CreateLogStream
+                    - logs:PutLogEvents
+                  Resource: arn:aws:logs:*:${aws:accountId}:log-group:/aws/lambda/*:*:*
 
   Outputs:
     WafWebAclArn:
       Description: "WAF WebACL ARN for CloudFront"
       Value: !GetAtt PjNameWafWebAcl.Arn
       Export:
-        Name: pj-name-serverless-stg-web-acl-arn
+        Name: ${self:service}-${sls:stage}-web-acl-arn
+    LambdaEdgeFunctionArn:
+      Description: "Lambda@Edge Function ARN"
+      Value: !Ref LambdaEdgeViewerRequestLambdaFunction
+      Export:
+        Name: ${self:service}-${sls:stage}-lambda-edge-function-arn
+
+plugins:
+  # - serverless-iam-roles-per-function # roleごと置き換えるので使用せず
+  - serverless-prune-plugin
+  # - serverless-lambda-edge-pre-existing-cloudfront # Cloudformation管理ではなさそうなので自分で制御する
