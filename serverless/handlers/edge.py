@@ -13,7 +13,9 @@ def log_event(event):
 def viewer_request(event, context):
     log_event(event)
 
-    webhook_url = "https://mail-to-line.liny.jp/check"
+    # lambda edgeは反映に遅延するので、lambda edgeが反映されているか、外部インターネットに出られるか外部のエンドポイントを叩いてチェック
+    # (自前のじゃないと結局ログ見れないが、、環境変数も使えないので適宜公開していいやつでセットして確認)
+    webhook_url = "https://google.com"
     payload = {"text": "Hello, World! From Lambda@Edge"}
 
     try:
