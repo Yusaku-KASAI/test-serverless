@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y \
 # Node.jsのインストール（Serverless Framework用）
 RUN curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && \
     apt-get install -y nodejs && \
-    npm install -g serverless@4
+    npm install -g serverless@3
 
 # AWS CLIのインストール
 RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
